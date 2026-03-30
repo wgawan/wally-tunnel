@@ -94,28 +94,40 @@ func TestKeysEmpty(t *testing.T) {
 func TestServeHTTP_TunnelCheck(t *testing.T) {
 	s := New("token", "example.dev")
 
-	// Valid subdomain check
+	// Valid subdomain check (from localhost)
 	r := httptest.NewRequest("GET", "/_tunnel/check?domain=app.example.dev", nil)
+	r.RemoteAddr = "127.0.0.1:1234"
 	w := httptest.NewRecorder()
 	s.ServeHTTP(w, r)
 	if w.Code != http.StatusOK {
 		t.Errorf("tunnel check valid subdomain: status = %d, want 200", w.Code)
 	}
 
-	// Invalid domain check
+	// Invalid domain check (from localhost)
 	r = httptest.NewRequest("GET", "/_tunnel/check?domain=other.com", nil)
+	r.RemoteAddr = "127.0.0.1:1234"
 	w = httptest.NewRecorder()
 	s.ServeHTTP(w, r)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("tunnel check invalid domain: status = %d, want 404", w.Code)
 	}
 
-	// Bare domain (no subdomain) check
+	// Bare domain (no subdomain) check (from localhost)
 	r = httptest.NewRequest("GET", "/_tunnel/check?domain=example.dev", nil)
+	r.RemoteAddr = "127.0.0.1:1234"
 	w = httptest.NewRecorder()
 	s.ServeHTTP(w, r)
 	if w.Code != http.StatusNotFound {
 		t.Errorf("tunnel check bare domain: status = %d, want 404", w.Code)
+	}
+
+	// Reject non-loopback requests
+	r = httptest.NewRequest("GET", "/_tunnel/check?domain=app.example.dev", nil)
+	r.RemoteAddr = "203.0.113.1:1234"
+	w = httptest.NewRecorder()
+	s.ServeHTTP(w, r)
+	if w.Code != http.StatusForbidden {
+		t.Errorf("tunnel check from external IP: status = %d, want 403", w.Code)
 	}
 }
 

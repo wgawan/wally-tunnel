@@ -41,8 +41,13 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Caddy on-demand TLS check: allow cert provisioning for any subdomain of our domain
+	// Caddy on-demand TLS check: allow cert provisioning for any subdomain of our domain.
+	// Restricted to loopback to prevent external abuse of certificate issuance.
 	if r.URL.Path == "/_tunnel/check" {
+		if !isLoopback(r.RemoteAddr) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 		domain := r.URL.Query().Get("domain")
 		sub := s.extractSubdomain(domain)
 		if sub != "" {
@@ -555,6 +560,17 @@ func (s *Server) handleWSProxy(w http.ResponseWriter, r *http.Request, client *T
 			return
 		}
 	}
+}
+
+func isLoopback(remoteAddr string) bool {
+	host := remoteAddr
+	if idx := strings.LastIndex(host, ":"); idx != -1 {
+		host = host[:idx]
+	}
+	// Strip brackets from IPv6 (e.g., "[::1]")
+	host = strings.TrimPrefix(host, "[")
+	host = strings.TrimSuffix(host, "]")
+	return host == "127.0.0.1" || host == "::1"
 }
 
 func ternary(cond bool, a, b string) string {
