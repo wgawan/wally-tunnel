@@ -5,21 +5,21 @@ import "encoding/json"
 type MessageType string
 
 const (
-	TypeAuth        MessageType = "auth"
-	TypeAuthResp    MessageType = "auth_resp"
-	TypeRegister    MessageType = "register"
-	TypeRegisterAck MessageType = "register_ack"
+	TypeAuth         MessageType = "auth"
+	TypeAuthResp     MessageType = "auth_resp"
+	TypeRegister     MessageType = "register"
+	TypeRegisterAck  MessageType = "register_ack"
 	TypeHTTPReq      MessageType = "http_req"
 	TypeHTTPResp     MessageType = "http_resp"
 	TypeHTTPRespHead MessageType = "http_resp_head"
 	TypeHTTPRespBody MessageType = "http_resp_body"
 	TypeHTTPRespEnd  MessageType = "http_resp_end"
-	TypeWSOpen      MessageType = "ws_open"
-	TypeWSOpenResp  MessageType = "ws_open_resp"
-	TypeWSFrame     MessageType = "ws_frame"
-	TypeWSClose     MessageType = "ws_close"
-	TypePing        MessageType = "ping"
-	TypePong        MessageType = "pong"
+	TypeWSOpen       MessageType = "ws_open"
+	TypeWSOpenResp   MessageType = "ws_open_resp"
+	TypeWSFrame      MessageType = "ws_frame"
+	TypeWSClose      MessageType = "ws_close"
+	TypePing         MessageType = "ping"
+	TypePong         MessageType = "pong"
 )
 
 // Envelope wraps all messages sent over the WebSocket.
@@ -37,8 +37,19 @@ type AuthRespMsg struct {
 	Error string `json:"error,omitempty"`
 }
 
+type BasicAuthConfig struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+type TunnelOptions struct {
+	BasicAuth        *BasicAuthConfig `json:"basic_auth,omitempty"`
+	ExpiresInSeconds int64            `json:"expires_in_seconds,omitempty"`
+}
+
 type RegisterMsg struct {
-	Subdomains map[string]int `json:"subdomains"` // subdomain -> local port
+	Subdomains map[string]int           `json:"subdomains"`        // subdomain -> local port
+	Options    map[string]TunnelOptions `json:"options,omitempty"` // subdomain -> edge protection options
 }
 
 type RegisterAckMsg struct {
@@ -98,9 +109,9 @@ type WSOpenRespMsg struct {
 
 // WSFrameMsg carries a single WebSocket frame in either direction.
 type WSFrameMsg struct {
-	ID       string `json:"id"`
-	IsText   bool   `json:"is_text"`
-	Data     []byte `json:"data"`
+	ID     string `json:"id"`
+	IsText bool   `json:"is_text"`
+	Data   []byte `json:"data"`
 }
 
 // WSCloseMsg signals that a proxied WebSocket connection has closed.

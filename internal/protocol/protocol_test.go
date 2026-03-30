@@ -29,7 +29,15 @@ func TestWrapUnwrap_RoundTrip(t *testing.T) {
 		{
 			name:    "register message",
 			msgType: TypeRegister,
-			data:    RegisterMsg{Subdomains: map[string]int{"app": 5173, "api": 3000}},
+			data: RegisterMsg{
+				Subdomains: map[string]int{"app": 5173, "api": 3000},
+				Options: map[string]TunnelOptions{
+					"app": {
+						BasicAuth:        &BasicAuthConfig{Username: "demo", Password: "secret"},
+						ExpiresInSeconds: 3600,
+					},
+				},
+			},
 		},
 		{
 			name:    "register ack",

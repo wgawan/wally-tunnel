@@ -10,8 +10,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/wgawan/wally-tunnel/internal/protocol"
 	"github.com/coder/websocket"
+	"github.com/wgawan/wally-tunnel/internal/protocol"
 )
 
 const (
@@ -22,8 +22,9 @@ const (
 // Mapping holds the local port(s) for a subdomain.
 // If WS is non-zero, WebSocket upgrades are routed there instead of HTTP.
 type Mapping struct {
-	HTTP int
-	WS   int
+	HTTP    int
+	WS      int
+	Protect Protection
 }
 
 // WSPort returns the port to use for WebSocket connections.
@@ -34,8 +35,50 @@ func (m Mapping) WSPort() int {
 	return m.HTTP
 }
 
+type BasicAuth struct {
+	Username string
+	Password string
+}
+
+type Protection struct {
+	BasicAuth *BasicAuth
+	ExpiresIn time.Duration
+}
+
+func (p Protection) Enabled() bool {
+	return p.BasicAuth != nil || p.ExpiresIn > 0
+}
+
+func (p Protection) RegisterOptions() protocol.TunnelOptions {
+	opts := protocol.TunnelOptions{}
+	if p.BasicAuth != nil {
+		opts.BasicAuth = &protocol.BasicAuthConfig{
+			Username: p.BasicAuth.Username,
+			Password: p.BasicAuth.Password,
+		}
+	}
+	if p.ExpiresIn > 0 {
+		opts.ExpiresInSeconds = int64(p.ExpiresIn.Seconds())
+	}
+	return opts
+}
+
+func (p Protection) Summary() string {
+	parts := make([]string, 0, 2)
+	if p.BasicAuth != nil {
+		parts = append(parts, fmt.Sprintf("basic auth (%s)", p.BasicAuth.Username))
+	}
+	if p.ExpiresIn > 0 {
+		parts = append(parts, fmt.Sprintf("expires in %s", p.ExpiresIn))
+	}
+	if len(parts) == 0 {
+		return "public"
+	}
+	return strings.Join(parts, ", ")
+}
+
 type Client struct {
-	ServerURL string             // e.g., wss://tunnel.yourdomain.dev
+	ServerURL string // e.g., wss://tunnel.yourdomain.dev
 	Token     string
 	Mappings  map[string]Mapping // subdomain -> local port(s)
 	Domain    string             // e.g., yourdomain.dev (for display only)
@@ -107,10 +150,13 @@ func (c *Client) connect(ctx context.Context) error {
 		if m.WS != 0 {
 			label += fmt.Sprintf(" (ws: localhost:%d)", m.WS)
 		}
+		host := sub
 		if c.Domain != "" {
-			log.Printf("  %s.%s -> %s", sub, c.Domain, label)
-		} else {
-			log.Printf("  %s -> %s", sub, label)
+			host = fmt.Sprintf("%s.%s", sub, c.Domain)
+		}
+		log.Printf("  %s -> %s [%s]", host, label, m.Protect.Summary())
+		if !m.Protect.Enabled() {
+			log.Printf("  WARNING: %s is publicly reachable with no tunnel-level protection", host)
 		}
 	}
 
@@ -146,10 +192,17 @@ func (c *Client) authenticate(ctx context.Context, conn *websocket.Conn) error {
 func (c *Client) register(ctx context.Context, conn *websocket.Conn) error {
 	// Convert to protocol format (server only needs subdomain names; port is informational)
 	subs := make(map[string]int, len(c.Mappings))
+	options := make(map[string]protocol.TunnelOptions)
 	for sub, m := range c.Mappings {
 		subs[sub] = m.HTTP
+		if opts := m.Protect.RegisterOptions(); opts.BasicAuth != nil || opts.ExpiresInSeconds > 0 {
+			options[sub] = opts
+		}
 	}
-	msg, _ := protocol.Wrap(protocol.TypeRegister, protocol.RegisterMsg{Subdomains: subs})
+	msg, _ := protocol.Wrap(protocol.TypeRegister, protocol.RegisterMsg{
+		Subdomains: subs,
+		Options:    options,
+	})
 	if err := c.writeMsg(ctx, conn, msg); err != nil {
 		return err
 	}

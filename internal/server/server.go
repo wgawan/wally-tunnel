@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/google/uuid"
 	"github.com/wgawan/wally-tunnel/internal/protocol"
-	"github.com/coder/websocket"
 )
 
 const (
@@ -33,8 +33,8 @@ type connLimiter struct {
 }
 
 type limitEntry struct {
-	count    int
-	resetAt  time.Time
+	count   int
+	resetAt time.Time
 }
 
 func newConnLimiter() *connLimiter {
@@ -86,12 +86,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		domain := r.URL.Query().Get("domain")
+		// Always approve the tunnel server's own hostname (tunnel.<domain>).
+		if domain == "tunnel."+s.domain {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		sub := s.extractSubdomain(domain)
 		if sub != "" {
-			w.WriteHeader(http.StatusOK)
-		} else {
-			http.Error(w, "not a subdomain of "+s.domain, http.StatusNotFound)
+			route, _ := s.registry.Resolve(sub)
+			if route != nil {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
 		}
+		http.Error(w, "not an active subdomain of "+s.domain, http.StatusNotFound)
 		return
 	}
 
@@ -229,7 +237,7 @@ func (s *Server) registerClient(ctx context.Context, conn *websocket.Conn) (*Tun
 	}
 
 	client := newTunnelClient(conn, reg.Subdomains)
-	active, taken, invalid := s.registry.Register(client, reg.Subdomains)
+	active, taken, invalid := s.registry.Register(client, reg.Subdomains, reg.Options)
 
 	var errParts []string
 	if len(taken) > 0 {
@@ -449,11 +457,19 @@ func isWebSocketUpgrade(r *http.Request) bool {
 }
 
 func (s *Server) handleProxyRequest(w http.ResponseWriter, r *http.Request, subdomain string) {
-	client := s.registry.Lookup(subdomain)
-	if client == nil {
+	route, expired := s.registry.Resolve(subdomain)
+	if route == nil {
+		if expired {
+			http.Error(w, "Tunnel expired", http.StatusGone)
+			return
+		}
 		http.Error(w, "No tunnel connected for this host", http.StatusBadGateway)
 		return
 	}
+	if !s.authorizeTunnelRequest(w, r, route) {
+		return
+	}
+	client := route.client
 
 	if isWebSocketUpgrade(r) {
 		s.handleWSProxy(w, r, client)
@@ -523,6 +539,24 @@ func (s *Server) handleProxyRequest(w http.ResponseWriter, r *http.Request, subd
 	case <-r.Context().Done():
 		return
 	}
+}
+
+func (s *Server) authorizeTunnelRequest(w http.ResponseWriter, r *http.Request, route *routeEntry) bool {
+	if route.protection.basicAuth == nil {
+		return true
+	}
+
+	username, password, ok := r.BasicAuth()
+	expected := route.protection.basicAuth
+	userOK := subtle.ConstantTimeCompare([]byte(username), []byte(expected.Username)) == 1
+	passOK := subtle.ConstantTimeCompare([]byte(password), []byte(expected.Password)) == 1
+	if ok && userOK && passOK {
+		return true
+	}
+
+	w.Header().Set("WWW-Authenticate", `Basic realm="wally-tunnel", charset="UTF-8"`)
+	http.Error(w, "Authentication required", http.StatusUnauthorized)
+	return false
 }
 
 func (s *Server) handleWSProxy(w http.ResponseWriter, r *http.Request, client *TunnelClient) {

@@ -3,13 +3,16 @@ package server
 import (
 	"sort"
 	"testing"
+	"time"
+
+	"github.com/wgawan/wally-tunnel/internal/protocol"
 )
 
 func TestRegistry_RegisterAndLookup(t *testing.T) {
 	r := NewRegistry()
 	client := newTunnelClient(nil, map[string]int{"app": 5173, "myapi": 3000})
 
-	active, taken, invalid := r.Register(client, map[string]int{"app": 5173, "myapi": 3000})
+	active, taken, invalid := r.Register(client, map[string]int{"app": 5173, "myapi": 3000}, nil)
 
 	if len(taken) != 0 {
 		t.Errorf("expected no taken subdomains, got %v", taken)
@@ -37,9 +40,9 @@ func TestRegistry_RegisterConflict(t *testing.T) {
 	client1 := newTunnelClient(nil, map[string]int{"app": 5173})
 	client2 := newTunnelClient(nil, map[string]int{"app": 3000, "other": 3000})
 
-	r.Register(client1, map[string]int{"app": 5173})
+	r.Register(client1, map[string]int{"app": 5173}, nil)
 
-	active, taken, _ := r.Register(client2, map[string]int{"app": 3000, "other": 3000})
+	active, taken, _ := r.Register(client2, map[string]int{"app": 3000, "other": 3000}, nil)
 
 	if len(taken) != 1 || taken[0] != "app" {
 		t.Errorf("expected taken=['app'], got %v", taken)
@@ -57,7 +60,7 @@ func TestRegistry_RegisterConflict(t *testing.T) {
 func TestRegistry_Unregister(t *testing.T) {
 	r := NewRegistry()
 	client := newTunnelClient(nil, map[string]int{"app": 5173, "svc": 3000})
-	r.Register(client, map[string]int{"app": 5173, "svc": 3000})
+	r.Register(client, map[string]int{"app": 5173, "svc": 3000}, nil)
 
 	r.Unregister(client)
 
@@ -74,8 +77,8 @@ func TestRegistry_UnregisterDoesNotAffectOthers(t *testing.T) {
 	client1 := newTunnelClient(nil, map[string]int{"app": 5173})
 	client2 := newTunnelClient(nil, map[string]int{"svc": 3000})
 
-	r.Register(client1, map[string]int{"app": 5173})
-	r.Register(client2, map[string]int{"svc": 3000})
+	r.Register(client1, map[string]int{"app": 5173}, nil)
+	r.Register(client2, map[string]int{"svc": 3000}, nil)
 
 	r.Unregister(client1)
 
@@ -90,7 +93,7 @@ func TestRegistry_UnregisterDoesNotAffectOthers(t *testing.T) {
 func TestRegistry_ActiveSubdomains(t *testing.T) {
 	r := NewRegistry()
 	client := newTunnelClient(nil, map[string]int{"app": 5173, "svc": 3000})
-	r.Register(client, map[string]int{"app": 5173, "svc": 3000})
+	r.Register(client, map[string]int{"app": 5173, "svc": 3000}, nil)
 
 	subs := r.ActiveSubdomains()
 	sort.Strings(subs)
@@ -104,9 +107,9 @@ func TestRegistry_ReregisterSameClient(t *testing.T) {
 	r := NewRegistry()
 	client := newTunnelClient(nil, map[string]int{"app": 5173})
 
-	r.Register(client, map[string]int{"app": 5173})
+	r.Register(client, map[string]int{"app": 5173}, nil)
 	// Same client re-registering should not conflict
-	active, taken, _ := r.Register(client, map[string]int{"app": 5173})
+	active, taken, _ := r.Register(client, map[string]int{"app": 5173}, nil)
 
 	if len(taken) != 0 {
 		t.Errorf("same client re-registering should not conflict, got taken=%v", taken)
@@ -120,7 +123,7 @@ func TestRegistry_RejectsReservedSubdomains(t *testing.T) {
 	r := NewRegistry()
 	client := newTunnelClient(nil, map[string]int{"www": 8080, "app": 8080})
 
-	active, _, invalid := r.Register(client, map[string]int{"www": 8080, "app": 8080})
+	active, _, invalid := r.Register(client, map[string]int{"www": 8080, "app": 8080}, nil)
 
 	if len(invalid) != 1 || invalid[0] != "www" {
 		t.Errorf("expected invalid=['www'], got %v", invalid)
@@ -150,7 +153,7 @@ func TestRegistry_RejectsInvalidSubdomains(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			client := newTunnelClient(nil, map[string]int{tt.sub: 8080})
-			active, _, invalid := r.Register(client, map[string]int{tt.sub: 8080})
+			active, _, invalid := r.Register(client, map[string]int{tt.sub: 8080}, nil)
 			if len(invalid) != 1 {
 				t.Errorf("expected %q to be invalid, got active=%v invalid=%v", tt.sub, active, invalid)
 			}
@@ -164,7 +167,7 @@ func TestRegistry_AcceptsValidSubdomains(t *testing.T) {
 	valid := []string{"app", "my-app", "a", "test123", "a-b-c"}
 	for _, sub := range valid {
 		client := newTunnelClient(nil, map[string]int{sub: 8080})
-		active, _, invalid := r.Register(client, map[string]int{sub: 8080})
+		active, _, invalid := r.Register(client, map[string]int{sub: 8080}, nil)
 		if len(invalid) != 0 {
 			t.Errorf("expected %q to be valid, got invalid=%v", sub, invalid)
 		}
@@ -172,5 +175,27 @@ func TestRegistry_AcceptsValidSubdomains(t *testing.T) {
 			t.Errorf("expected %q to be active", sub)
 		}
 		r.Unregister(client)
+	}
+}
+
+func TestRegistry_ResolveRemovesExpiredRoute(t *testing.T) {
+	r := NewRegistry()
+	client := newTunnelClient(nil, map[string]int{"app": 8080})
+
+	r.Register(client, map[string]int{"app": 8080}, map[string]protocol.TunnelOptions{
+		"app": {ExpiresInSeconds: 1},
+	})
+
+	time.Sleep(1100 * time.Millisecond)
+
+	entry, expired := r.Resolve("app")
+	if entry != nil {
+		t.Fatal("expected expired route to be removed")
+	}
+	if !expired {
+		t.Fatal("expected expired=true")
+	}
+	if got := r.Lookup("app"); got != nil {
+		t.Fatal("expected lookup to return nil after expiry")
 	}
 }

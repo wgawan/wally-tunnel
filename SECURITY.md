@@ -77,6 +77,10 @@ Tunnel WebSocket writes are serialized to avoid concurrent frame corruption.
 
 The internal `/_tunnel/check` endpoint is restricted to loopback addresses. It is meant for the reverse proxy's on-demand TLS check, not for public use.
 
+### Optional Edge Guardrails
+
+Tunnel mappings can optionally require HTTP basic auth and can expire automatically after a configured duration. These are convenience protections for short demos, not a replacement for application auth.
+
 ## What The Software Does Not Protect
 
 These are explicit non-goals:
@@ -106,7 +110,7 @@ This tool is optimized for temporary access, not permanent internet exposure.
 For the intended use case, the safest deployment looks like this:
 
 - use a dedicated tunnel subdomain such as `tunnel.example.dev`
-- point `*.tunnel.example.dev` at your VPS
+- point both `tunnel.example.dev` and `*.tunnel.example.dev` at your VPS
 - terminate TLS with Caddy or another reverse proxy
 - expose only ports `22`, `80`, and `443` to the public internet
 - keep the tunnel backend on `:8080` unreachable from the public internet

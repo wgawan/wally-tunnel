@@ -28,7 +28,7 @@ ClientAliveInterval 300
 ClientAliveCountMax 2
 SSH
 
-sshd -t && systemctl restart ssh
+sshd -t 2>/dev/null || /usr/sbin/sshd -t && systemctl restart ssh
 echo "    SSH: key-only auth, no forwarding, max 3 attempts"
 
 # 2. Firewall

@@ -54,6 +54,7 @@ Recommended setup:
 Create a wildcard DNS record:
 
 ```text
+  tunnel.example.dev  ->  A  ->  <your-vps-ip>
 *.tunnel.example.dev  ->  A  ->  <your-vps-ip>
 ```
 
@@ -112,6 +113,22 @@ mappings:
   app: 3000
 ```
 
+You can add lightweight tunnel-level guardrails when you share a demo:
+
+```yaml
+server: tunnel.example.dev
+token: your-token-from-setup
+domain: tunnel.example.dev
+mappings:
+  app:
+    http: 3000
+    protect:
+      basic_auth:
+        username: demo
+        password: ${APP_DEMO_PASSWORD}
+      expires_in: 2h
+```
+
 ### 5. Run It
 
 ```bash
@@ -153,6 +170,7 @@ Before you use it on the internet:
 - Treat the client token like a password and rotate it if it leaks.
 - Only expose apps that are safe to make public or already enforce auth.
 - Stop the client when the demo or testing session is over.
+- Prefer `basic_auth` and `expires_in` for anything you share with other people.
 
 ## Advanced Configuration
 
@@ -167,6 +185,23 @@ mappings:
 This exposes:
 - `https://app.tunnel.example.dev`
 - `https://api.tunnel.example.dev`
+
+### Lightweight guardrails
+
+Each mapping can optionally add basic auth and an automatic expiry:
+
+```yaml
+mappings:
+  app:
+    http: 3000
+    protect:
+      basic_auth:
+        username: demo
+        password: ${APP_DEMO_PASSWORD}
+      expires_in: 4h
+```
+
+This keeps the tunnel easy to start while giving shared demos a safer default posture.
 
 ### Separate WebSocket port
 

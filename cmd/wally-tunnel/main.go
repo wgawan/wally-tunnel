@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/wgawan/wally-tunnel/internal/client"
 	"gopkg.in/yaml.v3"
@@ -35,10 +36,19 @@ func (m *yamlMapping) UnmarshalYAML(value *yaml.Node) error {
 		m.HTTP = port
 		return nil
 	}
+
+	type protectYAML struct {
+		BasicAuth *client.BasicAuth `yaml:"basic_auth"`
+		ExpiresIn string            `yaml:"expires_in"`
+	}
+
 	// Try as object (e.g., "app: {http: 3000, ws: 64999}")
 	var obj struct {
-		HTTP int `yaml:"http"`
-		WS   int `yaml:"ws"`
+		HTTP      int               `yaml:"http"`
+		WS        int               `yaml:"ws"`
+		BasicAuth *client.BasicAuth `yaml:"basic_auth"`
+		ExpiresIn string            `yaml:"expires_in"`
+		Protect   protectYAML       `yaml:"protect"`
 	}
 	if err := value.Decode(&obj); err != nil {
 		return fmt.Errorf("mapping must be a port number or {http: PORT, ws: PORT}")
@@ -46,16 +56,48 @@ func (m *yamlMapping) UnmarshalYAML(value *yaml.Node) error {
 	if obj.HTTP == 0 {
 		return fmt.Errorf("mapping object requires 'http' port")
 	}
+	basicAuth := obj.BasicAuth
+	if basicAuth != nil && obj.Protect.BasicAuth != nil {
+		return fmt.Errorf("mapping cannot define both basic_auth and protect.basic_auth")
+	}
+	if basicAuth == nil {
+		basicAuth = obj.Protect.BasicAuth
+	}
+
+	expiresIn := obj.ExpiresIn
+	if expiresIn != "" && obj.Protect.ExpiresIn != "" {
+		return fmt.Errorf("mapping cannot define both expires_in and protect.expires_in")
+	}
+	if expiresIn == "" {
+		expiresIn = obj.Protect.ExpiresIn
+	}
+
 	m.HTTP = obj.HTTP
 	m.WS = obj.WS
+	if basicAuth != nil {
+		if basicAuth.Username == "" || basicAuth.Password == "" {
+			return fmt.Errorf("basic_auth requires username and password")
+		}
+		m.Protect.BasicAuth = basicAuth
+	}
+	if expiresIn != "" {
+		dur, err := time.ParseDuration(expiresIn)
+		if err != nil {
+			return fmt.Errorf("invalid expires_in duration %q: %w", expiresIn, err)
+		}
+		if dur <= 0 {
+			return fmt.Errorf("expires_in must be greater than zero")
+		}
+		m.Protect.ExpiresIn = dur
+	}
 	return nil
 }
 
 type config struct {
-	Server   string                  `yaml:"server"`
-	Token    string                  `yaml:"token"`
-	Domain   string                  `yaml:"domain"`
-	Mappings map[string]yamlMapping  `yaml:"mappings"`
+	Server   string                 `yaml:"server"`
+	Token    string                 `yaml:"token"`
+	Domain   string                 `yaml:"domain"`
+	Mappings map[string]yamlMapping `yaml:"mappings"`
 }
 
 func main() {
@@ -148,6 +190,8 @@ func loadConfig(path string) config {
 	if err != nil {
 		return config{}
 	}
+
+	data = []byte(os.ExpandEnv(string(data)))
 
 	var cfg config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
