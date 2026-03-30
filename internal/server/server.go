@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,12 +20,47 @@ const (
 	requestTimeout = 30 * time.Second
 	pingInterval   = 30 * time.Second
 	pongTimeout    = 10 * time.Second
+
+	// authRateLimit: max tunnel connection attempts per IP per window.
+	authRateMax    = 5
+	authRateWindow = time.Minute
 )
+
+// connLimiter tracks connection attempts per IP to mitigate brute-force auth.
+type connLimiter struct {
+	mu      sync.Mutex
+	entries map[string]*limitEntry
+}
+
+type limitEntry struct {
+	count    int
+	resetAt  time.Time
+}
+
+func newConnLimiter() *connLimiter {
+	return &connLimiter{entries: make(map[string]*limitEntry)}
+}
+
+// allow returns true if the IP has not exceeded the rate limit.
+func (l *connLimiter) allow(ip string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	now := time.Now()
+	e, ok := l.entries[ip]
+	if !ok || now.After(e.resetAt) {
+		l.entries[ip] = &limitEntry{count: 1, resetAt: now.Add(authRateWindow)}
+		return true
+	}
+	e.count++
+	return e.count <= authRateMax
+}
 
 type Server struct {
 	token    string
 	domain   string
 	registry *Registry
+	limiter  *connLimiter
 }
 
 func New(token, domain string) *Server {
@@ -32,6 +68,7 @@ func New(token, domain string) *Server {
 		token:    token,
 		domain:   domain,
 		registry: NewRegistry(),
+		limiter:  newConnLimiter(),
 	}
 }
 
@@ -85,6 +122,15 @@ func (s *Server) extractSubdomain(host string) string {
 }
 
 func (s *Server) handleTunnelClient(w http.ResponseWriter, r *http.Request) {
+	ip := r.RemoteAddr
+	if idx := strings.LastIndex(ip, ":"); idx != -1 {
+		ip = ip[:idx]
+	}
+	if !s.limiter.allow(ip) {
+		http.Error(w, "too many connection attempts", http.StatusTooManyRequests)
+		return
+	}
+
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{
 		InsecureSkipVerify: true, // We handle auth ourselves
 	})
