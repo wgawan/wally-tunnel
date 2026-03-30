@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/wgawan/wally-tunnel/internal/protocol"
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 // TestFullHTTPProxy exercises the complete HTTP proxy path:

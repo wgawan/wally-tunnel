@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/wgawan/wally-tunnel/internal/protocol"
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 // writeFunc serializes a message over the tunnel WebSocket.

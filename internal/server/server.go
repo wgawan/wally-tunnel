@@ -13,7 +13,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/wgawan/wally-tunnel/internal/protocol"
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 const (

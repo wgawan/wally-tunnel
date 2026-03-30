@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/wgawan/wally-tunnel/internal/protocol"
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 var _ = protocol.TypeAuth // ensure import

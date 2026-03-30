@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/wgawan/wally-tunnel/internal/protocol"
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 // mockTunnelServer simulates a wally-tunnel server for client testing.

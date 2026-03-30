@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/wgawan/wally-tunnel/internal/protocol"
-	"nhooyr.io/websocket"
+	"github.com/coder/websocket"
 )
 
 const (
@@ -41,7 +41,7 @@ type Client struct {
 	Domain    string             // e.g., yourdomain.dev (for display only)
 
 	// connMu serializes writes to the tunnel WebSocket connection.
-	// nhooyr.io/websocket Conn.Write is not safe for concurrent use.
+	// github.com/coder/websocket Conn.Write is not safe for concurrent use.
 	connMu sync.Mutex
 
 	// active local WebSocket connections (ws ID -> local WS conn)
