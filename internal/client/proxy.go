@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 
@@ -42,11 +43,12 @@ func checkAndForward(ctx context.Context, tunnelConn *websocket.Conn, req *proto
 
 	resp, err := httpClient.Do(httpReq)
 	if err != nil {
+		log.Printf("local service error for %s %s: %v", req.Method, req.Path, err)
 		errMsg, _ := protocol.Wrap(protocol.TypeHTTPResp, protocol.HTTPRespMsg{
 			ID:         req.ID,
 			StatusCode: http.StatusBadGateway,
 			Headers:    map[string][]string{"Content-Type": {"text/plain"}},
-			Body:       []byte(fmt.Sprintf("Local service error: %v", err)),
+			Body:       []byte("Tunnel: could not reach local service"),
 		})
 		return write(ctx, tunnelConn, errMsg)
 	}
