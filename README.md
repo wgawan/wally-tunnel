@@ -139,6 +139,8 @@ You need a VPS with a public IP and a domain you control.
 
 This lets Caddy automatically provision TLS certificates for any subdomain your tunnel clients register.
 
+**Using a subdomain:** You don't need a dedicated domain. If you already own `example.dev`, you can run the tunnel on a subdomain like `tunnel.example.dev`. Set your DNS to `*.tunnel.example.dev` and use `WALLY_TUNNEL_DOMAIN=tunnel.example.dev` during setup. Your tunnels will be at `app.tunnel.example.dev`, `api.tunnel.example.dev`, etc.
+
 ## Server Deployment
 
 The `deploy/` directory contains everything for a VPS setup:
