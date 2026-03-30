@@ -192,11 +192,16 @@ func (s *Server) authenticate(ctx context.Context, conn *websocket.Conn) error {
 	}
 
 	ok := subtle.ConstantTimeCompare([]byte(auth.Token), []byte(s.token)) == 1
-	resp, _ := protocol.Wrap(protocol.TypeAuthResp, protocol.AuthRespMsg{
+	resp, err := protocol.Wrap(protocol.TypeAuthResp, protocol.AuthRespMsg{
 		OK:    ok,
 		Error: ternary(!ok, "invalid token", ""),
 	})
-	conn.Write(ctx, websocket.MessageText, resp)
+	if err != nil {
+		return fmt.Errorf("marshal auth response: %w", err)
+	}
+	if err := conn.Write(ctx, websocket.MessageText, resp); err != nil {
+		return fmt.Errorf("write auth response: %w", err)
+	}
 
 	if !ok {
 		return fmt.Errorf("invalid token")
@@ -235,12 +240,17 @@ func (s *Server) registerClient(ctx context.Context, conn *websocket.Conn) (*Tun
 	}
 	errMsg := strings.Join(errParts, "; ")
 
-	resp, _ := protocol.Wrap(protocol.TypeRegisterAck, protocol.RegisterAckMsg{
+	resp, err := protocol.Wrap(protocol.TypeRegisterAck, protocol.RegisterAckMsg{
 		OK:     len(taken) == 0,
 		Active: active,
 		Error:  errMsg,
 	})
-	conn.Write(ctx, websocket.MessageText, resp)
+	if err != nil {
+		return nil, fmt.Errorf("marshal register ack: %w", err)
+	}
+	if err := conn.Write(ctx, websocket.MessageText, resp); err != nil {
+		return nil, fmt.Errorf("write register ack: %w", err)
+	}
 
 	if len(active) == 0 {
 		return nil, fmt.Errorf("no subdomains registered")
@@ -370,10 +380,13 @@ func (s *Server) readLoop(ctx context.Context, client *TunnelClient) {
 					client.mu.Unlock()
 					wsConn.Close(websocket.StatusNormalClosure, "")
 					// Notify tunnel client that the WS closed
-					closeMsg, _ := protocol.Wrap(protocol.TypeWSClose, protocol.WSCloseMsg{ID: frame.ID})
-					client.mu.Lock()
-					client.conn.Write(ctx, websocket.MessageText, closeMsg)
-					client.mu.Unlock()
+					if closeMsg, err := protocol.Wrap(protocol.TypeWSClose, protocol.WSCloseMsg{ID: frame.ID}); err == nil {
+						client.mu.Lock()
+						if wErr := client.conn.Write(ctx, websocket.MessageText, closeMsg); wErr != nil {
+							log.Printf("ws proxy: failed to notify client of ws close %s: %v", frame.ID, wErr)
+						}
+						client.mu.Unlock()
+					}
 				}
 			}
 
@@ -409,10 +422,15 @@ func (s *Server) keepalive(ctx context.Context, cancel context.CancelFunc, clien
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			msg, _ := protocol.Wrap(protocol.TypePing, nil)
+			msg, err := protocol.Wrap(protocol.TypePing, nil)
+			if err != nil {
+				log.Printf("keepalive marshal failed: %v", err)
+				cancel()
+				return
+			}
 			writeCtx, writeCancel := context.WithTimeout(ctx, pongTimeout)
 			client.mu.Lock()
-			err := client.conn.Write(writeCtx, websocket.MessageText, msg)
+			err = client.conn.Write(writeCtx, websocket.MessageText, msg)
 			client.mu.Unlock()
 			writeCancel()
 			if err != nil {
@@ -468,7 +486,11 @@ func (s *Server) handleProxyRequest(w http.ResponseWriter, r *http.Request, subd
 	}()
 
 	// Send request to client
-	data, _ := protocol.Wrap(protocol.TypeHTTPReq, msg)
+	data, err := protocol.Wrap(protocol.TypeHTTPReq, msg)
+	if err != nil {
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 	writeCtx, writeCancel := context.WithTimeout(r.Context(), 5*time.Second)
 	client.mu.Lock()
 	err = client.conn.Write(writeCtx, websocket.MessageText, data)
@@ -536,19 +558,26 @@ func (s *Server) handleWSProxy(w http.ResponseWriter, r *http.Request, client *T
 		delete(client.wsConns, id)
 		client.mu.Unlock()
 		// Notify tunnel client that the WS closed
-		msg, _ := protocol.Wrap(protocol.TypeWSClose, protocol.WSCloseMsg{ID: id})
-		client.mu.Lock()
-		client.conn.Write(context.Background(), websocket.MessageText, msg)
-		client.mu.Unlock()
+		if msg, err := protocol.Wrap(protocol.TypeWSClose, protocol.WSCloseMsg{ID: id}); err == nil {
+			client.mu.Lock()
+			if wErr := client.conn.Write(context.Background(), websocket.MessageText, msg); wErr != nil {
+				log.Printf("ws proxy: failed to send ws_close for %s: %v", id, wErr)
+			}
+			client.mu.Unlock()
+		}
 	}()
 
 	// Tell tunnel client to open a WebSocket to the local service
-	openMsg, _ := protocol.Wrap(protocol.TypeWSOpen, protocol.WSOpenMsg{
+	openMsg, err := protocol.Wrap(protocol.TypeWSOpen, protocol.WSOpenMsg{
 		ID:      id,
 		Path:    path,
 		Host:    r.Host,
 		Headers: r.Header,
 	})
+	if err != nil {
+		log.Printf("ws proxy: failed to marshal ws_open: %v", err)
+		return
+	}
 
 	// Create a channel to wait for the open response
 	openCh := make(chan *protocol.WSOpenRespMsg, 1)
@@ -593,11 +622,15 @@ func (s *Server) handleWSProxy(w http.ResponseWriter, r *http.Request, client *T
 		}
 
 		isText := msgType == websocket.MessageText
-		frame, _ := protocol.Wrap(protocol.TypeWSFrame, protocol.WSFrameMsg{
+		frame, err := protocol.Wrap(protocol.TypeWSFrame, protocol.WSFrameMsg{
 			ID:     id,
 			IsText: isText,
 			Data:   data,
 		})
+		if err != nil {
+			log.Printf("ws proxy: failed to marshal ws_frame: %v", err)
+			return
+		}
 
 		client.mu.Lock()
 		err = client.conn.Write(ctx, websocket.MessageText, frame)

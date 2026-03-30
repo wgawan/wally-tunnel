@@ -30,7 +30,13 @@ sudo mkdir -p /etc/caddy
 sudo cp deploy/Caddyfile /etc/caddy/Caddyfile
 sudo systemctl restart caddy
 
-# 3. Create env file for wally-tunnel-server
+# 3. Create service user
+if ! id -u wally-tunnel &>/dev/null; then
+    echo "Creating wally-tunnel service user..."
+    sudo useradd -r -s /usr/sbin/nologin -d /nonexistent wally-tunnel
+fi
+
+# 4. Create env file for wally-tunnel-server
 sudo mkdir -p /etc/wally-tunnel
 if [ ! -f /etc/wally-tunnel/env ]; then
     TOKEN=$(openssl rand -base64 32)
@@ -44,10 +50,11 @@ if [ ! -f /etc/wally-tunnel/env ]; then
 WALLY_TUNNEL_TOKEN=$TOKEN
 WALLY_TUNNEL_DOMAIN=$WALLY_TUNNEL_DOMAIN
 ENV
-    sudo chmod 600 /etc/wally-tunnel/env
 fi
+sudo chmod 640 /etc/wally-tunnel/env
+sudo chown root:wally-tunnel /etc/wally-tunnel/env
 
-# 4. Install wally-tunnel-server service
+# 5. Install wally-tunnel-server service
 sudo cp deploy/wally-tunnel-server.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now wally-tunnel-server

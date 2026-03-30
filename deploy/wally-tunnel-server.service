@@ -4,10 +4,28 @@ After=network.target caddy.service
 
 [Service]
 Type=simple
+User=wally-tunnel
+Group=wally-tunnel
 ExecStart=/usr/local/bin/wally-tunnel-server -listen :8080
 EnvironmentFile=/etc/wally-tunnel/env
 Restart=always
 RestartSec=5
+
+# Sandboxing
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+ReadOnlyPaths=/etc/wally-tunnel
 
 [Install]
 WantedBy=multi-user.target
