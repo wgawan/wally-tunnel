@@ -42,6 +42,14 @@ The setup script will:
 - Create a sandboxed systemd service
 - Print your client config with the token and next steps
 
+Then harden the server:
+
+```bash
+sudo bash deploy/harden.sh
+```
+
+This locks down SSH (key-only auth), enables a firewall (ports 22/80/443 only), installs fail2ban, and applies kernel hardening. Strongly recommended — see [SECURITY.md](SECURITY.md) for details.
+
 ### 2. Install the client (laptop)
 
 ```bash
@@ -107,11 +115,36 @@ mappings:
 
 CLI flags > YAML config file > environment variables
 
+## Server Requirements
+
+You need a VPS with a public IP and a domain you control.
+
+**Minimum specs:** 1 vCPU, 512MB RAM, Ubuntu 22.04+ (Debian-based)
+
+**Any VPS provider works.** A few options to get started:
+
+| Provider | Cheapest plan | Notes |
+|----------|--------------|-------|
+| [Hetzner](https://www.hetzner.com/cloud/) | ~$4/mo | EU/US datacenters |
+| [DigitalOcean](https://www.digitalocean.com/) | $4/mo | Simple setup |
+| [Vultr](https://www.vultr.com/) | $3.50/mo | Many regions |
+| [Oracle Cloud](https://www.oracle.com/cloud/free/) | Free tier | Always-free ARM instances |
+| [Linode](https://www.linode.com/) | $5/mo | Good docs |
+
+**DNS setup:** You need a wildcard A record. At your DNS provider, add:
+
+```
+*.yourdomain.dev  →  A  →  <your-vps-ip>
+```
+
+This lets Caddy automatically provision TLS certificates for any subdomain your tunnel clients register.
+
 ## Server Deployment
 
 The `deploy/` directory contains everything for a VPS setup:
 
 - `setup.sh` — Automated setup (downloads binary, installs Caddy, generates token, configures systemd)
+- `harden.sh` — Server hardening (SSH lockdown, firewall, fail2ban, kernel hardening)
 - `Caddyfile` — Caddy config with on-demand TLS for wildcard subdomains
 - `wally-tunnel-server.service` — Sandboxed systemd unit (runs as `wally-tunnel` user)
 
