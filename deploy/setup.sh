@@ -44,6 +44,7 @@ if [ ! -f /etc/wally-tunnel/env ]; then
 WALLY_TUNNEL_TOKEN=$TOKEN
 WALLY_TUNNEL_DOMAIN=$WALLY_TUNNEL_DOMAIN
 ENV
+    sudo chmod 600 /etc/wally-tunnel/env
 fi
 
 # 4. Install wally-tunnel-server service
