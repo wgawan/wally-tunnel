@@ -185,12 +185,12 @@ func TestRegisterConflictViaTunnel(t *testing.T) {
 		t.Fatalf("client1 should own 'app', got active=%v", ack1.Active)
 	}
 
-	// Client 2 tries to register "app" (conflict) and "api" (ok)
+	// Client 2 tries to register "app" (conflict) and "svc" (ok)
 	c2 := connectClient()
 	defer c2.Close(websocket.StatusNormalClosure, "")
 
 	reg2, _ := protocol.Wrap(protocol.TypeRegister, protocol.RegisterMsg{
-		Subdomains: map[string]int{"app": 4000, "api": 5000},
+		Subdomains: map[string]int{"app": 4000, "svc": 5000},
 	})
 	c2.Write(ctx, websocket.MessageText, reg2)
 	_, raw, _ = c2.Read(ctx)
@@ -198,8 +198,8 @@ func TestRegisterConflictViaTunnel(t *testing.T) {
 	var ack2 protocol.RegisterAckMsg
 	json.Unmarshal(env.Data, &ack2)
 
-	if len(ack2.Active) != 1 || ack2.Active[0] != "api" {
-		t.Errorf("client2 should only get 'api', got active=%v", ack2.Active)
+	if len(ack2.Active) != 1 || ack2.Active[0] != "svc" {
+		t.Errorf("client2 should only get 'svc', got active=%v", ack2.Active)
 	}
 	if ack2.Error == "" {
 		t.Error("should have error about 'app' being taken")

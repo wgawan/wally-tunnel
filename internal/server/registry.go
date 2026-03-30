@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"regexp"
 	"sync"
 
 	"github.com/wgawan/wally-tunnel/internal/protocol"
@@ -43,6 +44,17 @@ func newTunnelClient(conn *websocket.Conn, subdomains map[string]int) *TunnelCli
 	}
 }
 
+// reservedSubdomains are names that cannot be claimed by tunnel clients.
+var reservedSubdomains = map[string]bool{
+	"www": true, "mail": true, "smtp": true, "imap": true, "pop": true,
+	"api": true, "admin": true, "ns1": true, "ns2": true,
+	"ftp": true, "ssh": true, "localhost": true,
+	"_tunnel": true, "_dmarc": true,
+}
+
+// validSubdomain matches lowercase alphanumeric names with optional hyphens, 1-63 chars.
+var validSubdomain = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)
+
 type Registry struct {
 	mu      sync.RWMutex
 	tunnels map[string]*TunnelClient // subdomain -> client
@@ -55,12 +67,16 @@ func NewRegistry() *Registry {
 }
 
 // Register claims subdomains for a client. Returns the list of successfully registered
-// subdomains and any that were already taken.
-func (r *Registry) Register(client *TunnelClient, subdomains map[string]int) (active []string, taken []string) {
+// subdomains, any that were already taken, and any that were rejected as invalid.
+func (r *Registry) Register(client *TunnelClient, subdomains map[string]int) (active []string, taken []string, invalid []string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	for sub := range subdomains {
+		if !validSubdomain.MatchString(sub) || reservedSubdomains[sub] {
+			invalid = append(invalid, sub)
+			continue
+		}
 		if existing, ok := r.tunnels[sub]; ok && existing != client {
 			taken = append(taken, sub)
 			continue
@@ -68,7 +84,7 @@ func (r *Registry) Register(client *TunnelClient, subdomains map[string]int) (ac
 		r.tunnels[sub] = client
 		active = append(active, sub)
 	}
-	return active, taken
+	return active, taken, invalid
 }
 
 // Unregister removes all subdomains owned by a client.

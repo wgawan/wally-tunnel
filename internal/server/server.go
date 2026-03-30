@@ -173,12 +173,16 @@ func (s *Server) registerClient(ctx context.Context, conn *websocket.Conn) (*Tun
 	}
 
 	client := newTunnelClient(conn, reg.Subdomains)
-	active, taken := s.registry.Register(client, reg.Subdomains)
+	active, taken, invalid := s.registry.Register(client, reg.Subdomains)
 
-	errMsg := ""
+	var errParts []string
 	if len(taken) > 0 {
-		errMsg = fmt.Sprintf("subdomains already taken: %v", taken)
+		errParts = append(errParts, fmt.Sprintf("already taken: %v", taken))
 	}
+	if len(invalid) > 0 {
+		errParts = append(errParts, fmt.Sprintf("invalid or reserved: %v", invalid))
+	}
+	errMsg := strings.Join(errParts, "; ")
 
 	resp, _ := protocol.Wrap(protocol.TypeRegisterAck, protocol.RegisterAckMsg{
 		OK:     len(taken) == 0,
