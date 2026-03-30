@@ -38,5 +38,5 @@ func writeResponse(w http.ResponseWriter, resp *protocol.HTTPRespMsg) {
 		}
 	}
 	w.WriteHeader(resp.StatusCode)
-	w.Write(resp.Body)
+	_, _ = w.Write(resp.Body)
 }

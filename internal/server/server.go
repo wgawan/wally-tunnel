@@ -324,7 +324,9 @@ func (s *Server) readLoop(ctx context.Context, client *TunnelClient) {
 			sw, ok := client.streams[body.ID]
 			client.mu.Unlock()
 			if ok {
-				sw.w.Write(body.Data)
+				if _, err := sw.w.Write(body.Data); err != nil {
+					log.Printf("stream write failed for %s: %v", body.ID, err)
+				}
 				if sw.flusher != nil {
 					sw.flusher.Flush()
 				}
