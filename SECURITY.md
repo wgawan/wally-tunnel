@@ -6,7 +6,7 @@ If you discover a security vulnerability, please report it responsibly.
 
 **Do not open a public issue.**
 
-Instead, email **security@wgawan.com** with:
+Instead, email **wally@stackjive.com** with:
 
 - A description of the vulnerability
 - Steps to reproduce
