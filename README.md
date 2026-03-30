@@ -1,5 +1,7 @@
 # wally-tunnel
 
+> **Early Release**: This project was recently open-sourced. While it is functional and actively used, it has not been widely tested across environments. Please review the [security documentation](SECURITY.md) before deploying, and report any issues you find.
+
 A self-hosted reverse tunnel that exposes local services through custom subdomains on your own VPS. Think ngrok, but you own the infrastructure.
 
 ```
