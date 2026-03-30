@@ -75,6 +75,7 @@ func main() {
 	}
 	if *token != "" {
 		cfg.Token = *token
+		log.Println("WARNING: token passed via -token flag is visible in process listings; prefer WALLY_TUNNEL_TOKEN env var or config file")
 	}
 	if *domain != "" {
 		cfg.Domain = *domain
