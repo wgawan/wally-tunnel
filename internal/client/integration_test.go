@@ -113,7 +113,9 @@ func TestClientProxiesHTTPRequest(t *testing.T) {
 
 	// Parse the port from the local service URL
 	var localPort int
-	fmt.Sscanf(localService.URL, "http://127.0.0.1:%d", &localPort)
+	if _, err := fmt.Sscanf(localService.URL, "http://127.0.0.1:%d", &localPort); err != nil {
+		t.Fatalf("parse local service port: %v", err)
+	}
 
 	// Start mock tunnel server
 	mockServer := mockTunnelServer(t, "test-token")
@@ -225,7 +227,9 @@ func TestClientPingPong(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	go c.connect(ctx)
+	go func() {
+		_ = c.connect(ctx)
+	}()
 
 	select {
 	case <-pongReceived:

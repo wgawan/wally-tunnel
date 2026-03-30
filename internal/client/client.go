@@ -321,8 +321,11 @@ func (c *Client) handleWSOpen(ctx context.Context, tunnelConn *websocket.Conn, o
 			c.wsMu.Unlock()
 			localConn.Close(websocket.StatusNormalClosure, "")
 
-			closeMsg, _ := protocol.Wrap(protocol.TypeWSClose, protocol.WSCloseMsg{ID: open.ID})
-			c.writeMsg(ctx, tunnelConn, closeMsg)
+			if closeMsg, err := protocol.Wrap(protocol.TypeWSClose, protocol.WSCloseMsg{ID: open.ID}); err == nil {
+				if wErr := c.writeMsg(ctx, tunnelConn, closeMsg); wErr != nil {
+					log.Printf("ws: failed to send close for %s: %v", open.ID, wErr)
+				}
+			}
 			log.Printf("ws: closed %s", open.ID)
 		}()
 

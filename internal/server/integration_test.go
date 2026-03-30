@@ -41,7 +41,9 @@ func TestFullHTTPProxy(t *testing.T) {
 	}
 	env, _ := protocol.Unwrap(raw)
 	var authResp protocol.AuthRespMsg
-	json.Unmarshal(env.Data, &authResp)
+	if err := json.Unmarshal(env.Data, &authResp); err != nil {
+		t.Fatalf("unmarshal auth resp: %v", err)
+	}
 	if !authResp.OK {
 		t.Fatalf("auth failed: %s", authResp.Error)
 	}
@@ -59,7 +61,9 @@ func TestFullHTTPProxy(t *testing.T) {
 	}
 	env, _ = protocol.Unwrap(raw)
 	var regResp protocol.RegisterAckMsg
-	json.Unmarshal(env.Data, &regResp)
+	if err := json.Unmarshal(env.Data, &regResp); err != nil {
+		t.Fatalf("unmarshal register ack: %v", err)
+	}
 	if len(regResp.Active) == 0 {
 		t.Fatalf("no subdomains registered: %s", regResp.Error)
 	}
@@ -83,7 +87,10 @@ func TestFullHTTPProxy(t *testing.T) {
 			return
 		}
 		var req protocol.HTTPReqMsg
-		json.Unmarshal(env.Data, &req)
+		if err := json.Unmarshal(env.Data, &req); err != nil {
+			t.Errorf("unmarshal http req: %v", err)
+			return
+		}
 
 		// Send response back
 		resp, _ := protocol.Wrap(protocol.TypeHTTPResp, protocol.HTTPRespMsg{
@@ -92,7 +99,9 @@ func TestFullHTTPProxy(t *testing.T) {
 			Headers:    map[string][]string{"Content-Type": {"text/plain"}},
 			Body:       []byte("hello from tunnel"),
 		})
-		conn.Write(ctx, websocket.MessageText, resp)
+		if err := conn.Write(ctx, websocket.MessageText, resp); err != nil {
+			t.Errorf("write http resp: %v", err)
+		}
 	}()
 
 	// Make an HTTP request to the server as if we're a browser hitting app.example.dev
@@ -129,7 +138,9 @@ func TestAuthBadToken(t *testing.T) {
 	defer conn.Close(websocket.StatusNormalClosure, "")
 
 	authMsg, _ := protocol.Wrap(protocol.TypeAuth, protocol.AuthMsg{Token: "wrong-token"})
-	conn.Write(ctx, websocket.MessageText, authMsg)
+	if err := conn.Write(ctx, websocket.MessageText, authMsg); err != nil {
+		t.Fatalf("write auth: %v", err)
+	}
 
 	_, raw, err := conn.Read(ctx)
 	if err != nil {
@@ -137,7 +148,9 @@ func TestAuthBadToken(t *testing.T) {
 	}
 	env, _ := protocol.Unwrap(raw)
 	var resp protocol.AuthRespMsg
-	json.Unmarshal(env.Data, &resp)
+	if err := json.Unmarshal(env.Data, &resp); err != nil {
+		t.Fatalf("unmarshal auth resp: %v", err)
+	}
 
 	if resp.OK {
 		t.Error("auth should have failed with wrong token")
@@ -164,8 +177,12 @@ func TestRegisterConflictViaTunnel(t *testing.T) {
 			t.Fatalf("dial: %v", err)
 		}
 		authMsg, _ := protocol.Wrap(protocol.TypeAuth, protocol.AuthMsg{Token: "token"})
-		conn.Write(ctx, websocket.MessageText, authMsg)
-		conn.Read(ctx) // consume auth resp
+		if err := conn.Write(ctx, websocket.MessageText, authMsg); err != nil {
+			t.Fatalf("write auth: %v", err)
+		}
+		if _, _, err := conn.Read(ctx); err != nil { // consume auth resp
+			t.Fatalf("read auth resp: %v", err)
+		}
 		return conn
 	}
 
@@ -176,11 +193,18 @@ func TestRegisterConflictViaTunnel(t *testing.T) {
 	reg1, _ := protocol.Wrap(protocol.TypeRegister, protocol.RegisterMsg{
 		Subdomains: map[string]int{"app": 3000},
 	})
-	c1.Write(ctx, websocket.MessageText, reg1)
-	_, raw, _ := c1.Read(ctx)
+	if err := c1.Write(ctx, websocket.MessageText, reg1); err != nil {
+		t.Fatalf("write reg1: %v", err)
+	}
+	_, raw, err := c1.Read(ctx)
+	if err != nil {
+		t.Fatalf("read reg1 ack: %v", err)
+	}
 	env, _ := protocol.Unwrap(raw)
 	var ack1 protocol.RegisterAckMsg
-	json.Unmarshal(env.Data, &ack1)
+	if err := json.Unmarshal(env.Data, &ack1); err != nil {
+		t.Fatalf("unmarshal ack1: %v", err)
+	}
 	if len(ack1.Active) != 1 || ack1.Active[0] != "app" {
 		t.Fatalf("client1 should own 'app', got active=%v", ack1.Active)
 	}
@@ -192,11 +216,18 @@ func TestRegisterConflictViaTunnel(t *testing.T) {
 	reg2, _ := protocol.Wrap(protocol.TypeRegister, protocol.RegisterMsg{
 		Subdomains: map[string]int{"app": 4000, "svc": 5000},
 	})
-	c2.Write(ctx, websocket.MessageText, reg2)
-	_, raw, _ = c2.Read(ctx)
+	if err := c2.Write(ctx, websocket.MessageText, reg2); err != nil {
+		t.Fatalf("write reg2: %v", err)
+	}
+	_, raw, err = c2.Read(ctx)
+	if err != nil {
+		t.Fatalf("read reg2 ack: %v", err)
+	}
 	env, _ = protocol.Unwrap(raw)
 	var ack2 protocol.RegisterAckMsg
-	json.Unmarshal(env.Data, &ack2)
+	if err := json.Unmarshal(env.Data, &ack2); err != nil {
+		t.Fatalf("unmarshal ack2: %v", err)
+	}
 
 	if len(ack2.Active) != 1 || ack2.Active[0] != "svc" {
 		t.Errorf("client2 should only get 'svc', got active=%v", ack2.Active)
