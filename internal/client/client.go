@@ -292,7 +292,7 @@ func (c *Client) handleWSOpen(ctx context.Context, tunnelConn *websocket.Conn, o
 	if err != nil {
 		log.Printf("ws: local dial error: %v", err)
 		resp, _ := protocol.Wrap(protocol.TypeWSOpenResp, protocol.WSOpenRespMsg{
-			ID: open.ID, OK: false, Error: err.Error(),
+			ID: open.ID, OK: false, Error: "could not connect to local service",
 		})
 		_ = c.writeMsg(ctx, tunnelConn, resp)
 		return

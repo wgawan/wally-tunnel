@@ -431,7 +431,7 @@ func isWebSocketUpgrade(r *http.Request) bool {
 func (s *Server) handleProxyRequest(w http.ResponseWriter, r *http.Request, subdomain string) {
 	client := s.registry.Lookup(subdomain)
 	if client == nil {
-		http.Error(w, fmt.Sprintf("No tunnel connected for subdomain: %s", subdomain), http.StatusBadGateway)
+		http.Error(w, "No tunnel connected for this host", http.StatusBadGateway)
 		return
 	}
 
