@@ -12,6 +12,9 @@ import (
 	"nhooyr.io/websocket"
 )
 
+// writeFunc serializes a message over the tunnel WebSocket.
+type writeFunc func(ctx context.Context, conn *websocket.Conn, data []byte) error
+
 var httpClient = &http.Client{
 	// No timeout — streaming responses (SSE) can last indefinitely
 }
@@ -23,7 +26,7 @@ func isStreamingResponse(resp *http.Response) bool {
 
 // checkAndForward makes the local HTTP request and sends the response back through
 // the tunnel. Automatically detects streaming responses (SSE) and handles them.
-func checkAndForward(ctx context.Context, tunnelConn *websocket.Conn, req *protocol.HTTPReqMsg, localPort int) error {
+func checkAndForward(ctx context.Context, tunnelConn *websocket.Conn, req *protocol.HTTPReqMsg, localPort int, write writeFunc) error {
 	url := fmt.Sprintf("http://localhost:%d%s", localPort, req.Path)
 
 	httpReq, err := http.NewRequestWithContext(ctx, req.Method, url, bytes.NewReader(req.Body))
@@ -45,12 +48,12 @@ func checkAndForward(ctx context.Context, tunnelConn *websocket.Conn, req *proto
 			Headers:    map[string][]string{"Content-Type": {"text/plain"}},
 			Body:       []byte(fmt.Sprintf("Local service error: %v", err)),
 		})
-		return tunnelConn.Write(ctx, websocket.MessageText, errMsg)
+		return write(ctx, tunnelConn, errMsg)
 	}
 	defer resp.Body.Close()
 
 	if isStreamingResponse(resp) {
-		return streamResponse(ctx, tunnelConn, req.ID, resp)
+		return streamResponse(ctx, tunnelConn, req.ID, resp, write)
 	}
 
 	// Normal response — read full body and send as single message
@@ -65,18 +68,18 @@ func checkAndForward(ctx context.Context, tunnelConn *websocket.Conn, req *proto
 		Headers:    resp.Header,
 		Body:       body,
 	})
-	return tunnelConn.Write(ctx, websocket.MessageText, msg)
+	return write(ctx, tunnelConn, msg)
 }
 
 // streamResponse sends headers first, then streams body chunks for SSE/streaming responses.
-func streamResponse(ctx context.Context, tunnelConn *websocket.Conn, reqID string, resp *http.Response) error {
+func streamResponse(ctx context.Context, tunnelConn *websocket.Conn, reqID string, resp *http.Response, write writeFunc) error {
 	// Send headers
 	head, _ := protocol.Wrap(protocol.TypeHTTPRespHead, protocol.HTTPRespHeadMsg{
 		ID:         reqID,
 		StatusCode: resp.StatusCode,
 		Headers:    resp.Header,
 	})
-	if err := tunnelConn.Write(ctx, websocket.MessageText, head); err != nil {
+	if err := write(ctx, tunnelConn, head); err != nil {
 		return err
 	}
 
@@ -89,7 +92,7 @@ func streamResponse(ctx context.Context, tunnelConn *websocket.Conn, reqID strin
 				ID:   reqID,
 				Data: buf[:n],
 			})
-			if err := tunnelConn.Write(ctx, websocket.MessageText, chunk); err != nil {
+			if err := write(ctx, tunnelConn, chunk); err != nil {
 				return err
 			}
 		}
@@ -100,5 +103,5 @@ func streamResponse(ctx context.Context, tunnelConn *websocket.Conn, reqID strin
 
 	// Signal end of stream
 	end, _ := protocol.Wrap(protocol.TypeHTTPRespEnd, protocol.HTTPRespEndMsg{ID: reqID})
-	return tunnelConn.Write(ctx, websocket.MessageText, end)
+	return write(ctx, tunnelConn, end)
 }

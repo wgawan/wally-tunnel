@@ -40,9 +40,20 @@ type Client struct {
 	Mappings  map[string]Mapping // subdomain -> local port(s)
 	Domain    string             // e.g., yourdomain.dev (for display only)
 
+	// connMu serializes writes to the tunnel WebSocket connection.
+	// nhooyr.io/websocket Conn.Write is not safe for concurrent use.
+	connMu sync.Mutex
+
 	// active local WebSocket connections (ws ID -> local WS conn)
 	wsMu    sync.Mutex
 	wsConns map[string]*websocket.Conn
+}
+
+// writeMsg serializes writes to the tunnel WebSocket connection.
+func (c *Client) writeMsg(ctx context.Context, conn *websocket.Conn, data []byte) error {
+	c.connMu.Lock()
+	defer c.connMu.Unlock()
+	return conn.Write(ctx, websocket.MessageText, data)
 }
 
 func (c *Client) Run(ctx context.Context) error {
@@ -108,7 +119,7 @@ func (c *Client) connect(ctx context.Context) error {
 
 func (c *Client) authenticate(ctx context.Context, conn *websocket.Conn) error {
 	msg, _ := protocol.Wrap(protocol.TypeAuth, protocol.AuthMsg{Token: c.Token})
-	if err := conn.Write(ctx, websocket.MessageText, msg); err != nil {
+	if err := c.writeMsg(ctx, conn, msg); err != nil {
 		return err
 	}
 
@@ -139,7 +150,7 @@ func (c *Client) register(ctx context.Context, conn *websocket.Conn) error {
 		subs[sub] = m.HTTP
 	}
 	msg, _ := protocol.Wrap(protocol.TypeRegister, protocol.RegisterMsg{Subdomains: subs})
-	if err := conn.Write(ctx, websocket.MessageText, msg); err != nil {
+	if err := c.writeMsg(ctx, conn, msg); err != nil {
 		return err
 	}
 
@@ -213,7 +224,7 @@ func (c *Client) readLoop(ctx context.Context, conn *websocket.Conn) error {
 
 		case protocol.TypePing:
 			msg, _ := protocol.Wrap(protocol.TypePong, nil)
-			if err := conn.Write(ctx, websocket.MessageText, msg); err != nil {
+			if err := c.writeMsg(ctx, conn, msg); err != nil {
 				log.Printf("pong write error: %v", err)
 			}
 
@@ -233,7 +244,7 @@ func (c *Client) handleRequest(ctx context.Context, conn *websocket.Conn, req *p
 
 	log.Printf("%s %s -> localhost:%d", req.Method, req.Path, m.HTTP)
 
-	if err := checkAndForward(ctx, conn, req, m.HTTP); err != nil {
+	if err := checkAndForward(ctx, conn, req, m.HTTP, c.writeMsg); err != nil {
 		log.Printf("forward error: %v", err)
 	}
 }
@@ -246,7 +257,7 @@ func (c *Client) handleWSOpen(ctx context.Context, tunnelConn *websocket.Conn, o
 		resp, _ := protocol.Wrap(protocol.TypeWSOpenResp, protocol.WSOpenRespMsg{
 			ID: open.ID, OK: false, Error: "unknown subdomain",
 		})
-		_ = tunnelConn.Write(ctx, websocket.MessageText, resp)
+		_ = c.writeMsg(ctx, tunnelConn, resp)
 		return
 	}
 
@@ -283,7 +294,7 @@ func (c *Client) handleWSOpen(ctx context.Context, tunnelConn *websocket.Conn, o
 		resp, _ := protocol.Wrap(protocol.TypeWSOpenResp, protocol.WSOpenRespMsg{
 			ID: open.ID, OK: false, Error: err.Error(),
 		})
-		_ = tunnelConn.Write(ctx, websocket.MessageText, resp)
+		_ = c.writeMsg(ctx, tunnelConn, resp)
 		return
 	}
 
@@ -298,7 +309,7 @@ func (c *Client) handleWSOpen(ctx context.Context, tunnelConn *websocket.Conn, o
 	resp, _ := protocol.Wrap(protocol.TypeWSOpenResp, protocol.WSOpenRespMsg{
 		ID: open.ID, OK: true,
 	})
-	_ = tunnelConn.Write(ctx, websocket.MessageText, resp)
+	_ = c.writeMsg(ctx, tunnelConn, resp)
 
 	log.Printf("ws: connected %s -> localhost:%d%s", open.ID, port, open.Path)
 
@@ -311,7 +322,7 @@ func (c *Client) handleWSOpen(ctx context.Context, tunnelConn *websocket.Conn, o
 			localConn.Close(websocket.StatusNormalClosure, "")
 
 			closeMsg, _ := protocol.Wrap(protocol.TypeWSClose, protocol.WSCloseMsg{ID: open.ID})
-			tunnelConn.Write(ctx, websocket.MessageText, closeMsg)
+			c.writeMsg(ctx, tunnelConn, closeMsg)
 			log.Printf("ws: closed %s", open.ID)
 		}()
 
@@ -326,7 +337,7 @@ func (c *Client) handleWSOpen(ctx context.Context, tunnelConn *websocket.Conn, o
 				IsText: msgType == websocket.MessageText,
 				Data:   data,
 			})
-			if err := tunnelConn.Write(ctx, websocket.MessageText, frame); err != nil {
+			if err := c.writeMsg(ctx, tunnelConn, frame); err != nil {
 				return
 			}
 		}
