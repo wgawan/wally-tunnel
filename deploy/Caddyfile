@@ -1,0 +1,12 @@
+{
+    on_demand_tls {
+        ask http://localhost:8080/_tunnel/check
+    }
+}
+
+https:// {
+    tls {
+        on_demand
+    }
+    reverse_proxy localhost:8080
+}

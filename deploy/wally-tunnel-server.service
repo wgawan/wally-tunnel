@@ -1,0 +1,13 @@
+[Unit]
+Description=Wally Tunnel Server
+After=network.target caddy.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/wally-tunnel-server -listen :8080
+EnvironmentFile=/etc/wally-tunnel/env
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
