@@ -1,56 +1,94 @@
 # wally-tunnel
 
-> **Early Release**: This project was recently open-sourced. While it is functional and actively used, it has not been widely tested across environments. Please review the [security documentation](SECURITY.md) before deploying, and report any issues you find.
+> **Early Release**: This project is functional and actively used, but it is still early. Read [SECURITY.md](SECURITY.md) before putting it on the internet.
 
-A self-hosted reverse tunnel that exposes local services through custom subdomains on your own VPS. Think ngrok, but you own the infrastructure.
+A self-hosted reverse tunnel for one developer.
+It is an `ngrok`-style tool, similar in spirit to `Cloudflare Tunnel` and other hosted tunneling providers, but designed to run on your own VPS with a simpler single-user trust model.
 
-```
-┌──────────────┐       ┌──────────────────┐       ┌──────────────┐
-│  Browser     │──────▶│  VPS (server)    │◀──────│  Your laptop │
-│              │ HTTPS │  Caddy + tunnel  │  WSS  │  (client)    │
-│ app.your.dev │       │  server on :8080 │       │  localhost:   │
-│              │◀──────│                  │──────▶│    3000,5173  │
-└──────────────┘       └──────────────────┘       └──────────────┘
-```
+Use it to:
+- open a local app on your own phone or tablet
+- send a teammate a quick demo URL
+- expose a temporary preview from your laptop through your own VPS
 
-**Features:**
-- HTTP/HTTPS request proxying through WebSocket tunnel
-- WebSocket proxying with subprotocol support (e.g., Vite HMR)
-- Server-Sent Events (SSE) and streaming response support
-- Separate port routing for WebSocket vs HTTP traffic per subdomain
-- Automatic TLS via Caddy on-demand certificates
-- Automatic reconnection with exponential backoff
-- YAML config file + CLI flags + environment variables
+Do not use it as:
+- a multi-user tunnel platform
+- a permanent shared environment
+- a secure URL generator
+- a replacement for authentication inside your app
+
+If you want a self-hosted `ngrok` alternative, a simple reverse tunnel on your own domain, or an easy way to expose `localhost` from your laptop, that is where wally-tunnel fits.
+
+## What You Get
+
+- HTTP/HTTPS request proxying through a WebSocket tunnel
+- WebSocket proxying with subprotocol support, including Vite HMR
+- Server-Sent Events and streaming response support
+- Separate HTTP and WebSocket ports per subdomain
+- Automatic TLS via Caddy
+- Automatic client reconnects
+- YAML config file plus CLI flags and environment variables
+
+## Security In One Minute
+
+- Tunnel URLs are public internet URLs.
+- The tunnel does not protect your app from end users. Your app's auth is still your job.
+- The client token is the only credential for registering tunnels. Treat it like a password.
+- This project is intended for a single operator using their own tunnel server.
+- Use a dedicated subdomain such as `tunnel.example.dev`, not your root domain.
+
+More detail: [SECURITY.md](SECURITY.md)
 
 ## Quick Start
 
-### 1. Set up the server (VPS)
+### 1. Prepare a VPS and DNS
 
-Point `*.yourdomain.dev` DNS to your VPS IP (wildcard A record), then:
+You need:
+- a VPS with a public IP
+- a domain or subdomain you control
 
-```bash
-# SSH into your VPS
-git clone https://github.com/wgawan/wally-tunnel.git
-cd wally-tunnel
-sudo WALLY_TUNNEL_DOMAIN=yourdomain.dev bash deploy/setup.sh
+Recommended setup:
+
+- Base domain for the tunnel: `tunnel.example.dev`
+- Public tunnel URLs: `app.tunnel.example.dev`, `api.tunnel.example.dev`
+
+Create a wildcard DNS record:
+
+```text
+*.tunnel.example.dev  ->  A  ->  <your-vps-ip>
 ```
 
-The setup script will:
-- Download the latest server binary from GitHub Releases
-- Install and configure Caddy for automatic TLS
-- Generate a secure auth token
-- Create a sandboxed systemd service
-- Print your client config with the token and next steps
+Using a dedicated subdomain limits blast radius and keeps tunnel traffic separate from the rest of your domain.
 
-Then harden the server:
+### 2. Set Up the Server
+
+On the VPS:
+
+```bash
+git clone https://github.com/wgawan/wally-tunnel.git
+cd wally-tunnel
+sudo WALLY_TUNNEL_DOMAIN=tunnel.example.dev bash deploy/setup.sh
+```
+
+Then harden it immediately:
 
 ```bash
 sudo bash deploy/harden.sh
 ```
 
-This locks down SSH (key-only auth), enables a firewall (ports 22/80/443 only), installs fail2ban, and applies kernel hardening. Strongly recommended — see [SECURITY.md](SECURITY.md) for details.
+The setup flow:
+- installs the latest server binary
+- installs Caddy for TLS
+- generates a random auth token
+- creates the systemd service
+- prints the client config you need
 
-### 2. Install the client (laptop)
+The hardening script:
+- restricts incoming traffic to `22`, `80`, and `443`
+- enables key-only SSH
+- installs `fail2ban`
+- applies kernel hardening
+
+### 3. Install the Client
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/wgawan/wally-tunnel/master/install.sh | bash
@@ -62,27 +100,63 @@ Or with Go:
 go install github.com/wgawan/wally-tunnel/cmd/wally-tunnel@latest
 ```
 
-### 3. Connect
+### 4. Create Your Config
 
-Create `~/.wally-tunnel.yaml` (the setup script prints this for you):
+Create `~/.wally-tunnel.yaml`:
 
 ```yaml
-server: tunnel.yourdomain.dev
+server: tunnel.example.dev
 token: your-token-from-setup
-domain: yourdomain.dev
+domain: tunnel.example.dev
 mappings:
   app: 3000
 ```
 
-Then run:
+### 5. Run It
 
 ```bash
 wally-tunnel
 ```
 
-Your service is now live at `https://app.yourdomain.dev`.
+Now your local service on `localhost:3000` is reachable at:
 
-You can map multiple subdomains:
+```text
+https://app.tunnel.example.dev
+```
+
+This is the intended workflow:
+- start a tunnel
+- use it briefly for your own device testing or a teammate demo
+- stop it when you are done
+
+## Recommended Usage
+
+Good fits:
+- checking a local app on mobile hardware
+- showing a teammate a short-lived demo
+- temporarily exposing a dev server with its own auth
+
+Bad fits:
+- long-lived shared environments
+- sensitive internal tools without authentication
+- anything that assumes the URL itself is secret
+- sharing the client token with multiple people
+
+## Security Checklist
+
+Before you use it on the internet:
+
+- Use a dedicated subdomain such as `tunnel.example.dev`.
+- Run `deploy/harden.sh` on the VPS.
+- Verify only ports `22`, `80`, and `443` are publicly reachable.
+- Keep the tunnel backend on `:8080` inaccessible from the public internet.
+- Treat the client token like a password and rotate it if it leaks.
+- Only expose apps that are safe to make public or already enforce auth.
+- Stop the client when the demo or testing session is over.
+
+## Advanced Configuration
+
+### Multiple subdomains
 
 ```yaml
 mappings:
@@ -90,13 +164,13 @@ mappings:
   api: 3000
 ```
 
-This gives you `https://app.yourdomain.dev` and `https://api.yourdomain.dev`.
-
-## Advanced Configuration
+This exposes:
+- `https://app.tunnel.example.dev`
+- `https://api.tunnel.example.dev`
 
 ### Separate WebSocket port
 
-If your app serves WebSocket traffic on a different port (e.g., Vite HMR on 64999):
+If your app serves HTTP and WebSocket traffic on different ports:
 
 ```yaml
 mappings:
@@ -109,7 +183,7 @@ mappings:
 
 | Variable | Description |
 |----------|-------------|
-| `WALLY_TUNNEL_TOKEN` | Auth token (fallback if not in config/CLI) |
+| `WALLY_TUNNEL_TOKEN` | Auth token if not provided via config or CLI |
 
 ### Configuration precedence
 
@@ -117,63 +191,36 @@ CLI flags > YAML config file > environment variables
 
 ## Server Requirements
 
-You need a VPS with a public IP and a domain you control.
+- 1 vCPU
+- 512 MB RAM
+- Ubuntu 22.04+ or similar Debian-based system
+- a public IP
+- a domain you control
 
-**Minimum specs:** 1 vCPU, 512MB RAM, Ubuntu 22.04+ (Debian-based)
+Any VPS provider works.
 
-**Any VPS provider works.** A few options to get started:
+## Deployment Notes
 
-| Provider | Cheapest plan | Notes |
-|----------|--------------|-------|
-| [Hetzner](https://www.hetzner.com/cloud/) | ~$4/mo | EU/US datacenters |
-| [DigitalOcean](https://www.digitalocean.com/) | $4/mo | Simple setup |
-| [Vultr](https://www.vultr.com/) | $3.50/mo | Many regions |
-| [Oracle Cloud](https://www.oracle.com/cloud/free/) | Free tier | Always-free ARM instances |
-| [Linode](https://www.linode.com/) | $5/mo | Good docs |
+The `deploy/` directory contains:
 
-**DNS setup:** You need a wildcard A record. At your DNS provider, add:
+- `setup.sh`: installs the server, Caddy, token, and service
+- `harden.sh`: applies host hardening for the expected use case
+- `Caddyfile`: TLS and reverse proxy config
+- `wally-tunnel-server.service`: systemd unit for the tunnel server
 
-```
-*.yourdomain.dev  →  A  →  <your-vps-ip>
-```
+Important deployment note:
 
-This lets Caddy automatically provision TLS certificates for any subdomain your tunnel clients register.
+- The tunnel server listens on `:8080` behind Caddy.
+- Do not leave `:8080` publicly reachable.
+- The intended deployment is a hardened host where only `22`, `80`, and `443` are exposed.
 
-**Using a subdomain:** You don't need a dedicated domain. If you already own `example.dev`, you can run the tunnel on a subdomain like `tunnel.example.dev`. Set your DNS to `*.tunnel.example.dev` and use `WALLY_TUNNEL_DOMAIN=tunnel.example.dev` during setup. Your tunnels will be at `app.tunnel.example.dev`, `api.tunnel.example.dev`, etc.
+## How It Works
 
-## Server Deployment
-
-The `deploy/` directory contains everything for a VPS setup:
-
-- `setup.sh` — Automated setup (downloads binary, installs Caddy, generates token, configures systemd)
-- `harden.sh` — Server hardening (SSH lockdown, firewall, fail2ban, kernel hardening)
-- `Caddyfile` — Caddy config with on-demand TLS for wildcard subdomains
-- `wally-tunnel-server.service` — Sandboxed systemd unit (runs as `wally-tunnel` user)
-
-**DNS requirement:** Create a wildcard A record `*.yourdomain.dev` pointing to your VPS IP.
-
-**Updating the server:**
-
-```bash
-# Re-run setup.sh to download the latest release (keeps your existing token)
-sudo bash deploy/setup.sh
-```
-
-Or deploy a custom build:
-
-```bash
-make deploy VPS_IP=your-vps-ip VPS_USER=root
-```
-
-## Architecture
-
-The system uses a WebSocket-based tunnel protocol:
-
-1. **Client** connects to server via WebSocket and authenticates with a shared token
-2. **Client** registers subdomain mappings (e.g., "app" -> localhost:5173)
-3. **Server** receives HTTP requests for `app.yourdomain.dev`, wraps them in the tunnel protocol, and forwards them to the client
-4. **Client** makes the request to the local service and sends the response back through the tunnel
-5. **WebSocket** and **SSE** connections are proxied with streaming support
+1. The client connects to your VPS over WebSocket and authenticates with a shared token.
+2. The client registers one or more subdomains.
+3. Your VPS receives requests for those subdomains.
+4. The server forwards those requests through the tunnel to your laptop.
+5. Your laptop sends the response back through the tunnel.
 
 ## License
 

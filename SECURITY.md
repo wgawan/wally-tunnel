@@ -2,18 +2,13 @@
 
 ## Reporting a Vulnerability
 
-If you discover a security vulnerability, please report it responsibly.
+If you discover a security issue, do not open a public issue.
 
-**Do not open a public issue.**
-
-Instead, email **wally@stackjive.com** with:
-
-- A description of the vulnerability
-- Steps to reproduce
-- Potential impact
-- Suggested fix (if any)
-
-You should receive a response within 72 hours. We'll work with you to understand the issue and coordinate a fix before any public disclosure.
+Email **wally@stackjive.com** with:
+- a description of the issue
+- steps to reproduce
+- potential impact
+- a suggested fix, if you have one
 
 ## Supported Versions
 
@@ -21,93 +16,143 @@ You should receive a response within 72 hours. We'll work with you to understand
 |---------|-----------|
 | 0.1.x   | Yes       |
 
-## Security Model
+## Intended Security Posture
 
-wally-tunnel is a self-hosted tunneling tool. By design, it exposes local services to the public internet through your server. The security boundary is:
+wally-tunnel is designed for a narrow use case:
 
-- **Authentication**: A shared token authenticates tunnel clients to the server. Only clients with the correct token can register subdomains.
-- **No encryption between client and server**: TLS terminates at Caddy (the reverse proxy). The tunnel WebSocket connection between your client and server should always run behind a TLS-terminating proxy.
-- **No tenant isolation**: All authenticated clients share the same server. Anyone with the token can register any available subdomain.
+- one developer operating their own tunnel server
+- temporary access to a local service
+- personal device testing or quick teammate demos
 
-## Built-in Protections
+It is not designed for:
+- multi-tenant access
+- permanent shared environments
+- secret or hard-to-guess URLs as a security control
+- replacing authentication and authorization in the app you expose
 
-The following protections are implemented in the application:
+If you need long-lived access, multi-user permissions, audit controls, or URL secrecy, this is the wrong tool.
 
-### Rate Limiting
-Per-IP rate limiting (5 attempts/minute) on tunnel WebSocket connection attempts to mitigate brute-force token guessing. Returns HTTP 429 when exceeded.
+## Trust Model
+
+The trust model is intentionally simple:
+
+- A single shared token authenticates tunnel clients to the server.
+- Anyone with that token can register available subdomains.
+- End-user HTTP requests are not authenticated by the tunnel.
+- Registered subdomains are public internet endpoints.
+- TLS is expected to terminate at a reverse proxy such as Caddy.
+
+Operationally, this means:
+
+- protect the token like a password
+- do not share the token with teammates
+- only expose apps that are safe to make public or already have their own auth
+- stop the tunnel when you no longer need it
+
+## What The Software Protects
+
+The application includes a small set of built-in protections:
+
+### Client Authentication
+
+Tunnel clients must authenticate with the shared token before they can register subdomains.
 
 ### Subdomain Validation
-Subdomain names are validated against a strict pattern (alphanumeric + hyphens, max 63 chars) and reserved names (`_tunnel`, `www`, `api`, etc.) are rejected to prevent internal endpoint hijacking.
+
+Subdomains are restricted to lowercase alphanumeric names with optional hyphens. Reserved names such as `www`, `api`, and `_tunnel` are rejected.
+
+### Connection Attempt Rate Limiting
+
+Tunnel connection attempts are rate limited to reduce brute-force guessing of the shared token.
 
 ### Error Sanitization
-Error messages returned to external clients through the tunnel are sanitized to prevent leaking internal state (server paths, stack traces, internal IPs). Detailed errors are logged server-side only.
 
-### Concurrent Write Safety
-WebSocket writes from the tunnel client are serialized with a mutex to prevent corrupt frames from concurrent goroutines.
+Errors returned through the tunnel are sanitized to avoid leaking internal paths, stack traces, or local network details to internet clients.
 
-### Internal Endpoint Restriction
-The `_tunnel/check` endpoint (used by Caddy's on-demand TLS) is restricted to loopback addresses (127.0.0.1/::1) to prevent external enumeration of registered subdomains.
+### WebSocket Write Serialization
 
-### Token Handling
-- The setup script sets `0600` permissions on the token env file so only root can read it.
-- A warning is logged if the token is passed via the `-token` CLI flag, since command-line arguments are visible in `/proc/<pid>/cmdline` and shell history. Use the `WALLY_TUNNEL_TOKEN` environment variable or a config file instead.
+Tunnel WebSocket writes are serialized to avoid concurrent frame corruption.
 
-## Deployment Hardening Recommendations
+### Loopback Restriction For Internal TLS Checks
 
-When self-hosting, the server should be locked down beyond the application defaults. These are not enforced by the software but are strongly recommended:
+The internal `/_tunnel/check` endpoint is restricted to loopback addresses. It is meant for the reverse proxy's on-demand TLS check, not for public use.
 
-### SSH
-- Disable password authentication — use key-based auth only.
-- Set `PermitRootLogin prohibit-password` (or create a non-root user and set `PermitRootLogin no`).
-- Disable X11 forwarding, TCP forwarding, and agent forwarding.
-- Set `MaxAuthTries 3` to limit brute-force attempts.
+## What The Software Does Not Protect
 
-### Firewall
-- Allow only the ports you need: `22` (SSH), `80` (HTTP redirect), `443` (HTTPS).
-- Deny all other incoming traffic by default.
+These are explicit non-goals:
 
-### Intrusion Prevention
-- Install `fail2ban` with aggressive SSH jail settings to auto-ban IPs after repeated failed login attempts.
+### Public URL Access
 
-### Service Sandboxing
-- Run `wally-tunnel-server` as a dedicated non-root user (e.g., `wally-tunnel`).
-- Use systemd sandboxing directives:
-  ```ini
-  [Service]
-  User=wally-tunnel
-  Group=wally-tunnel
-  NoNewPrivileges=true
-  ProtectSystem=strict
-  ProtectHome=true
-  PrivateTmp=true
-  PrivateDevices=true
-  ProtectKernelTunables=true
-  ProtectKernelModules=true
-  ProtectControlGroups=true
-  RestrictSUIDSGID=true
-  RestrictNamespaces=true
-  MemoryDenyWriteExecute=true
-  RestrictRealtime=true
-  SystemCallArchitectures=native
-  ReadOnlyPaths=/etc/wally-tunnel
-  ```
-- Set the env file permissions to `640 root:<service-user>` so only the service can read the token.
+If a subdomain is active, anyone on the internet can send requests to it.
 
-### Kernel Hardening
-Apply sysctl settings to reduce attack surface:
-- Enable SYN flood protection (`tcp_syncookies`)
-- Disable ICMP redirects and source routing
-- Disable IP forwarding (unless needed)
-- Restrict unprivileged BPF and ptrace
-- Hide kernel pointers (`kptr_restrict = 2`)
+### Request-Level Auth
 
-### TLS
-- Always run behind a TLS-terminating reverse proxy (Caddy, nginx, etc.).
-- The included Caddy configuration uses on-demand TLS with Let's Encrypt, providing automatic certificate provisioning for registered subdomains.
+The tunnel does not add login, session checks, ACLs, or per-request authorization.
 
-## Security Considerations
+### Tenant Isolation
 
-- **Token is a single shared secret**: Anyone with the token has full access. Rotate it periodically and treat it like a password.
-- **Subdomains are public**: Once a tunnel client registers a subdomain, it is accessible to anyone on the internet. Only expose services you intend to be public.
-- **No request-level auth**: The tunnel itself does not authenticate end-user HTTP requests. Your tunneled application is responsible for its own authentication and authorization.
-- **Log monitoring**: Monitor server logs for unexpected tunnel registrations or repeated authentication failures, which may indicate token compromise or brute-force attempts.
+This is not a shared platform. Anyone with the token can act as a trusted tunnel client.
+
+### Secret URL Security
+
+This project does not generate unguessable or security-sensitive URLs. A readable subdomain like `app.example.dev` is normal and expected.
+
+### Long-Term Exposure Safety
+
+This tool is optimized for temporary access, not permanent internet exposure.
+
+## Recommended Deployment
+
+For the intended use case, the safest deployment looks like this:
+
+- use a dedicated tunnel subdomain such as `tunnel.example.dev`
+- point `*.tunnel.example.dev` at your VPS
+- terminate TLS with Caddy or another reverse proxy
+- expose only ports `22`, `80`, and `443` to the public internet
+- keep the tunnel backend on `:8080` unreachable from the public internet
+- run the server as a dedicated non-root user
+- keep the auth token in a root-owned env file
+
+The included `deploy/harden.sh` script is part of that posture. Run it before you start depending on the service.
+
+## Operational Guidance
+
+### Treat The Token Like A Password
+
+The token is the only credential for tunnel client registration. If it leaks, rotate it.
+
+### Prefer A Dedicated Subdomain
+
+Use `tunnel.example.dev`, not `example.dev`, so tunnel traffic stays isolated from your main domain.
+
+### Expose Only What You Intend To Be Public
+
+If the local app should not be public without a login, add a login to the app before exposing it.
+
+### Keep Demos Short-Lived
+
+Start the tunnel when you need it. Stop it when you are done.
+
+### Monitor Logs
+
+Watch for unexpected registrations or repeated failed tunnel connections.
+
+## Notes On TLS
+
+The recommended deployment uses Caddy with on-demand TLS.
+
+Important nuance:
+
+- the tunnel server's internal TLS authorization endpoint is loopback-only
+- certificate provisioning is scoped to first-level subdomains under your configured tunnel domain
+- TLS gives transport security for the public URL, but it does not make the URL private or access-controlled
+
+## Summary
+
+The correct mental model is:
+
+- this is a secure transport path to a public URL
+- it is not an access-control system
+- it is best for one operator doing temporary sharing or device testing
+
+That is the security posture this project is designed to maximize.
