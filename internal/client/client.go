@@ -132,7 +132,14 @@ func (c *Client) connect(ctx context.Context) error {
 
 	conn.SetReadLimit(16 << 20) // 16MB
 
+	// Close any leftover local WS connections from a previous tunnel session
+	// before resetting the map. This prevents Vite (and similar services)
+	// from writing to a half-dead proxy chain after a tunnel reconnect.
 	c.wsMu.Lock()
+	for id, ws := range c.wsConns {
+		ws.Close(websocket.StatusGoingAway, "tunnel reconnecting")
+		log.Printf("ws: force-closed stale connection %s", id)
+	}
 	c.wsConns = make(map[string]*websocket.Conn)
 	c.wsMu.Unlock()
 
@@ -160,7 +167,12 @@ func (c *Client) connect(ctx context.Context) error {
 		}
 	}
 
-	return c.readLoop(ctx, conn)
+	// Create a per-connection context so all WS proxy goroutines exit
+	// promptly when this tunnel connection drops.
+	connCtx, connCancel := context.WithCancel(ctx)
+	defer connCancel()
+
+	return c.readLoop(connCtx, conn)
 }
 
 func (c *Client) authenticate(ctx context.Context, conn *websocket.Conn) error {
@@ -412,7 +424,13 @@ func (c *Client) handleWSFrame(ctx context.Context, frame *protocol.WSFrameMsg) 
 	if frame.IsText {
 		msgType = websocket.MessageText
 	}
-	_ = localConn.Write(ctx, msgType, frame.Data)
+	if err := localConn.Write(ctx, msgType, frame.Data); err != nil {
+		// Local connection is dead — remove it so we stop trying to write.
+		c.wsMu.Lock()
+		delete(c.wsConns, frame.ID)
+		c.wsMu.Unlock()
+		localConn.Close(websocket.StatusGoingAway, "write failed")
+	}
 }
 
 func (c *Client) handleWSClose(closeMsg *protocol.WSCloseMsg) {
