@@ -18,6 +18,16 @@ type writeFunc func(ctx context.Context, conn *websocket.Conn, data []byte) erro
 
 var httpClient = &http.Client{
 	// No timeout — streaming responses (SSE) can last indefinitely
+
+	// Never follow redirects: the tunnel must forward 3xx responses verbatim
+	// (status, Location, and any Set-Cookie) so the browser performs the
+	// redirect itself. Following them here would collapse a 302 into its final
+	// 200 and discard the redirect response's Set-Cookie headers — which breaks
+	// flows that set cookies on a redirect, e.g. WordPress login (auth cookies
+	// are set on the post-login 302, so login would silently bounce).
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	},
 }
 
 func isStreamingResponse(resp *http.Response) bool {
